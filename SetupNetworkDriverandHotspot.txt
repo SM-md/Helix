@@ -1,0 +1,23 @@
+Install Tools & Compile the Network Driver
+sudo apt install -y build-essential git dkms linux-headers-$(uname -r) network-manager
+git clone https://github.com/kelebek333/rtl8188fu
+sudo dkms add ./rtl8188fu
+sudo dkms build rtl8188fu/1.0
+sudo dkms install rtl8188fu/1.0
+sudo mkdir -p /lib/firmware/rtlwifi/
+sudo cp ./rtl8188fu/firmware/rtl8188fufw.bin /lib/firmware/rtlwifi/
+sudo modprobe rtl8188fu
+echo "rtl8188fu" | sudo tee -a /etc/modules
+
+Prevent the antenna from going to sleep or randomizing MAC address
+echo "options rtl8188fu rtw_power_mgnt=0 rtw_enusbss=0" | sudo tee /etc/modprobe.d/rtl8188fu.conf
+echo -e "[device]\nwifi.scan-rand-mac-address=no" | sudo tee /etc/NetworkManager/conf.d/disable-random-mac.conf
+sudo systemctl restart NetworkManager
+
+Create Hotspot
+sudo nmcli con add type wifi ifname wlx002e2dc02030 con-name MangroveHotspot autoconnect yes ssid Mangrove_Rover_Net
+sudo nmcli con modify MangroveHotspot 802-11-wireless.mode ap 802-11-wireless.band bg ipv4.method shared
+sudo nmcli con modify MangroveHotspot wifi-sec.key-mgmt wpa-psk wifi-sec.psk "PASSWORD"
+sudo nmcli con up MangroveHotspot
+
+ssh helix@10.42.0.1
