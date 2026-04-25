@@ -57,7 +57,61 @@ void loop() {
   }
 }
 
-// ... [Keep your existing recvWithStartEndMarkers() and parseData() and plantSequence() functions exactly as they were] ...
+// --- COMMUNICATION LOGIC ---
+void recvWithStartEndMarkers() {
+  static boolean recvInProgress = false;
+  static byte ndx = 0;
+  char startMarker = '<';
+  char endMarker = '>';
+  char rc;
+
+  while (Serial.available() > 0 && newData == false) {
+    rc = Serial.read();
+
+    if (recvInProgress == true) {
+      if (rc != endMarker) {
+        receivedChars[ndx] = rc;
+        ndx++;
+        if (ndx >= numChars) { ndx = numChars - 1; }
+      } else {
+        receivedChars[ndx] = '\0'; // terminate the string
+        recvInProgress = false;
+        ndx = 0;
+        newData = true;
+      }
+    } else if (rc == startMarker) {
+      recvInProgress = true;
+    }
+  }
+}
+
+void parseData() {
+  char * strtokIndx; 
+  
+  strtokIndx = strtok(tempChars, ","); // Get the command letter
+  char command = strtokIndx[0];
+  
+  if (command == 'D') {
+    // Parse Drive Speeds
+    strtokIndx = strtok(NULL, ",");
+    int leftSpeed = atoi(strtokIndx); 
+    strtokIndx = strtok(NULL, ",");
+    int rightSpeed = atoi(strtokIndx); 
+    
+    driveMotors(leftSpeed, rightSpeed);
+    Serial.println("ACK: Drive Command Executed");
+    
+  } else if (command == 'P') {
+    // Parse Plant Sequence
+    Serial.println("ACK: Planting Sequence Initiated");
+    plantSequence();
+    Serial.println("ACK: Planting Sequence Complete");
+    
+  } else if (command == 'S') {
+    driveMotors(0, 0);
+    Serial.println("ACK: Emergency Stop");
+  }
+}
 
 // --- HARDWARE CONTROL LOGIC (UPDATED FOR HC-160A S2) ---
 void driveMotors(int leftSpeed, int rightSpeed) {
