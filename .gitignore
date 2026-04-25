@@ -1,0 +1,62 @@
+# =========================
+# Operating System Files
+# =========================
+.DS_Store
+.DS_Store?
+._*
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# =========================
+# IDEs and Editors
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# =========================
+# Environment Variables
+# =========================
+# NEVER commit your secrets, passwords, or API keys
+.env
+.env.local
+.env.*.local
+
+# =========================
+# Node.js / Web Development
+# =========================
+node_modules/
+npm-debug.log
+yarn-error.log
+dist/
+
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.venv/
+pip-log.txt
+
+# =========================
+# C / C++ / Embedded Systems
+# =========================
+*.o
+*.ko
+*.obj
+*.elf
+*.bin
+*.hex
+*.out
+*.a
+*.lib
+build/
+CMakeCache.txt
+CMakeFiles/
