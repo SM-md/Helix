@@ -1,54 +1,90 @@
 import serial
 import time
+import threading
+import sys
+
+# --- CONFIGURATION ---
+SERIAL_PORT = '/dev/ttyUSB0' # Change to /dev/ttyACM0 if needed
+BAUD_RATE = 115200
 
 # Connect to the ESP32
-serial_port = '/dev/ttyUSB0' # CHANGE THIS to /dev/ttyACM0 if necessary
-baud_rate = 115200
-
 try:
-    print(f"Connecting to ESP32 on {serial_port}...")
-    esp32 = serial.Serial(serial_port, baud_rate, timeout=1)
-    time.sleep(2) # Wait 2 seconds for ESP32 to reset upon connection
-    print("Connection Established!")
+    print(f"Connecting to ESP32 on {SERIAL_PORT}...")
+    esp32 = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
+    time.sleep(2) # Give ESP32 time to reboot upon connection
+    print("Connection Established!\n")
 except Exception as e:
-    print(f"FAILED to connect: {e}")
-    exit()
+    print(f"FAILED to connect. Is the USB plugged in? Error: {e}")
+    sys.exit(1)
 
+# --- BACKGROUND LISTENER THREAD ---
+def listen_to_esp32():
+    """Continuously reads incoming serial data without blocking user input."""
+    while True:
+        try:
+            if esp32.in_waiting:
+                incoming_data = esp32.readline().decode('utf-8').strip()
+                
+                # Intercept Battery Voltage updates
+                if incoming_data.startswith("<V,") and incoming_data.endswith(">"):
+                    clean_data = incoming_data.strip("<>")
+                    parts = clean_data.split(",")
+                    voltage = float(parts[1])
+                    
+                    # Print over the current line cleanly
+                    sys.stdout.write(f"\r[SYS] Battery Health: {voltage:.2f}V   \nCommand > ")
+                    sys.stdout.flush()
+                
+                # Print standard ESP32 replies (ACKs)
+                elif incoming_data:
+                    sys.stdout.write(f"\r[ESP32] {incoming_data}\nCommand > ")
+                    sys.stdout.flush()
+        except:
+            # Exit thread quietly if serial port closes
+            break
+
+# Start the background listener
+listener_thread = threading.Thread(target=listen_to_esp32, daemon=True)
+listener_thread.start()
+
+# --- COMMAND TRANSMITTER ---
 def send_command(cmd):
-    # Wrap the command in our start/end markers
     formatted_cmd = f"<{cmd}>"
     esp32.write(formatted_cmd.encode('utf-8'))
-    print(f"Sent: {formatted_cmd}")
-    
-    # Read any acknowledgement back from the ESP32
-    time.sleep(0.1)
-    while esp32.in_waiting:
-        print("ESP32 Reply:", esp32.readline().decode('utf-8').strip())
 
-print("\n--- MANGROVE ROVER MANUAL CONTROL ---")
-print("Command Guide:")
-print("  D,100,100   (Drive Forward slowly)")
-print("  D,-100,-100 (Drive Reverse slowly)")
-print("  D,100,-100  (Crab Walk / Pivot)")
-print("  S           (Emergency Brake)")
-print("  Q           (Quit Program)\n")
+print("=========================================")
+print("     MANGROVE ROVER CONTROL CENTER       ")
+print("=========================================")
+print(" D,100,100   : Drive Forward")
+print(" D,-100,-100 : Drive Reverse")
+print(" D,100,-100  : Crab Walk / Pivot")
+print(" P           : Drop Sapling (Plant)")
+print(" S           : EMERGENCY STOP")
+print(" Q           : Quit Program")
+print("=========================================\n")
 
+# --- MAIN CONTROL LOOP ---
 try:
     while True:
-        user_input = input("Enter Command: ").strip().upper()
+        # Wait for user to type a command
+        user_input = input("Command > ").strip().upper()
         
         if user_input == 'Q':
-            print("Shutting down... applying brakes.")
+            print("\nShutting down... applying brakes.")
             send_command("S")
+            time.sleep(0.5)
             break
             
-        send_command(user_input)
+        elif user_input:
+            send_command(user_input)
 
 except KeyboardInterrupt:
-    # If you press Ctrl+C, forcefully stop the motors
+    # Safely handle Ctrl+C
     print("\nForce Quit detected. Applying brakes.")
     send_command("S")
+    time.sleep(0.5)
 
 finally:
+    # Ensure port is closed cleanly
     esp32.close()
-    print("Serial port closed safely.")
+    print("Serial port closed. Rover Safe.")
