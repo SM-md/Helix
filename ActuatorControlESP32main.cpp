@@ -1,5 +1,5 @@
 #include <Arduino.h>
-#include <ESP32Servo.h>
+//#include <ESP32Servo.h>
 
 // --- PIN DEFINITIONS ---
 // Left Motor (Wired to Driver Side a/b)
@@ -13,7 +13,7 @@ const int DIR_B2 = 19; // Pin B (Wired to POS_RIGHT)
 const int PWM_2 = 18;  // Pin PWMAB
 
 // Planter (Single Drop Chute for Plow Mechanism)
-Servo saplingDoorServo;
+//Servo saplingDoorServo;
 const int SAPLING_DOOR_PIN = 4;
 
 // Battery Voltage Sensor
@@ -25,40 +25,6 @@ const byte numChars = 32;
 char receivedChars[numChars];
 char tempChars[numChars];
 boolean newData = false;
-
-void setup() {
-  Serial.begin(115200);
-  
-  // Setup Motor Pins
-  pinMode(DIR_A1, OUTPUT); pinMode(DIR_B1, OUTPUT); pinMode(PWM_1, OUTPUT);
-  pinMode(DIR_A2, OUTPUT); pinMode(DIR_B2, OUTPUT); pinMode(PWM_2, OUTPUT);
-  
-  // Ensure motors start totally stopped (Brake Mode)
-  digitalWrite(DIR_A1, LOW); digitalWrite(DIR_B1, LOW); analogWrite(PWM_1, 0);
-  digitalWrite(DIR_A2, LOW); digitalWrite(DIR_B2, LOW); analogWrite(PWM_2, 0);
-  
-  // Setup Planter Pin
-  saplingDoorServo.attach(SAPLING_DOOR_PIN);
-  saplingDoorServo.write(0); // Ensure door is closed
-  
-  Serial.println("ESP32 Muscle Layer Ready.");
-}
-
-void loop() {
-  // Listen for commands from the Raspberry Pi
-  recvWithStartEndMarkers();
-  if (newData == true) {
-    strcpy(tempChars, receivedChars);
-    parseData();
-    newData = false;
-  }
-
-  // Report Battery Voltage every 2 seconds
-  if (millis() - lastVoltageTime > 2000) {
-    reportBatteryVoltage();
-    lastVoltageTime = millis();
-  }
-}
 
 // --- COMMUNICATION PARSING ---
 void recvWithStartEndMarkers() {
@@ -88,6 +54,49 @@ void recvWithStartEndMarkers() {
   }
 }
 
+// --- HARDWARE CONTROL LOGIC (UPDATED FOR HC-160A S2) ---
+void driveMotors(int leftSpeed, int rightSpeed) {
+  // Constrain limits
+  leftSpeed = constrain(leftSpeed, -245, 245);
+  rightSpeed = constrain(rightSpeed, -245, 245);
+
+  // Left Motor Control (Motor A)
+  if (leftSpeed > 0) {
+    // FLIPPED LOGIC: Now drives "Forward" mechanically
+    digitalWrite(DIR_A1, LOW);
+    digitalWrite(DIR_B1, HIGH);
+    analogWrite(PWM_1, leftSpeed);
+  } else if (leftSpeed < 0) {
+    // FLIPPED LOGIC: Now drives "Backward" mechanically
+    digitalWrite(DIR_A1, HIGH);
+    digitalWrite(DIR_B1, LOW);
+    analogWrite(PWM_1, abs(leftSpeed));
+  } else {
+    // Both LOW = Active Braking
+    digitalWrite(DIR_A1, LOW);
+    digitalWrite(DIR_B1, LOW);
+    analogWrite(PWM_1, 0);
+  }
+
+  // Right Motor Control (Motor a)
+  if (rightSpeed > 0) {
+    // FLIPPED LOGIC: Now drives "Forward" mechanically
+    digitalWrite(DIR_A2, LOW);
+    digitalWrite(DIR_B2, HIGH);
+    analogWrite(PWM_2, rightSpeed);
+  } else if (rightSpeed < 0) {
+    // FLIPPED LOGIC: Now drives "Backward" mechanically
+    digitalWrite(DIR_A2, HIGH);
+    digitalWrite(DIR_B2, LOW);
+    analogWrite(PWM_2, abs(rightSpeed));
+  } else {
+    // Both LOW = Active Braking
+    digitalWrite(DIR_A2, LOW);
+    digitalWrite(DIR_B2, LOW);
+    analogWrite(PWM_2, 0);
+  }
+}
+
 void parseData() {
   char * strtokIndx; 
   strtokIndx = strtok(tempChars, ","); 
@@ -106,7 +115,7 @@ void parseData() {
   } else if (command == 'P') {
     // Execute Plant Sequence
     Serial.println("ACK: Dropping Sapling into Plow Trench...");
-    plantSequence();
+    //plantSequence();
     Serial.println("ACK: Planting Sequence Complete");
     
   } else if (command == 'S') {
@@ -116,53 +125,14 @@ void parseData() {
   }
 }
 
-// --- HARDWARE CONTROL LOGIC (UPDATED FOR HC-160A S2) ---
-void driveMotors(int leftSpeed, int rightSpeed) {
-  // Constrain limits
-  leftSpeed = constrain(leftSpeed, -245, 245);
-  rightSpeed = constrain(rightSpeed, -245, 245);
-
-  // Left Motor Control (Motor A)
-  if (leftSpeed > 0) {
-    digitalWrite(DIR_A1, HIGH);
-    digitalWrite(DIR_B1, LOW);
-    analogWrite(PWM_1, leftSpeed);
-  } else if (leftSpeed < 0) {
-    digitalWrite(DIR_A1, LOW);
-    digitalWrite(DIR_B1, HIGH);
-    analogWrite(PWM_1, abs(leftSpeed));
-  } else {
-    // Both LOW = Active Braking
-    digitalWrite(DIR_A1, LOW);
-    digitalWrite(DIR_B1, LOW);
-    analogWrite(PWM_1, 0);
-  }
-
-  // Right Motor Control (Motor a)
-  if (rightSpeed > 0) {
-    digitalWrite(DIR_A2, HIGH);
-    digitalWrite(DIR_B2, LOW);
-    analogWrite(PWM_2, rightSpeed);
-  } else if (rightSpeed < 0) {
-    digitalWrite(DIR_A2, LOW);
-    digitalWrite(DIR_B2, HIGH);
-    analogWrite(PWM_2, abs(rightSpeed));
-  } else {
-    // Both LOW = Active Braking
-    digitalWrite(DIR_A2, LOW);
-    digitalWrite(DIR_B2, LOW);
-    analogWrite(PWM_2, 0);
-  }
-}
-
-void plantSequence() {
+//void plantSequence() {
   // Open chute door to drop sapling into the center plow channel
-  saplingDoorServo.write(90); 
-  delay(1000); // Wait 1 second for it to fall
+  //saplingDoorServo.write(90); 
+  //delay(1000); // Wait 1 second for it to fall
   
   // Close door for the next cycle
-  saplingDoorServo.write(0);
-}
+  //saplingDoorServo.write(0);
+//}
 
 void reportBatteryVoltage() {
   // Read ADC and scale it to actual 12V battery voltage (1/5 voltage divider)
@@ -174,4 +144,38 @@ void reportBatteryVoltage() {
   Serial.print("<V,");
   Serial.print(batteryVoltage);
   Serial.println(">");
+}
+
+void setup() {
+  Serial.begin(115200);
+  
+  // Setup Motor Pins
+  pinMode(DIR_A1, OUTPUT); pinMode(DIR_B1, OUTPUT); pinMode(PWM_1, OUTPUT);
+  pinMode(DIR_A2, OUTPUT); pinMode(DIR_B2, OUTPUT); pinMode(PWM_2, OUTPUT);
+  
+  // Ensure motors start totally stopped (Brake Mode)
+  digitalWrite(DIR_A1, LOW); digitalWrite(DIR_B1, LOW); analogWrite(PWM_1, 0);
+  digitalWrite(DIR_A2, LOW); digitalWrite(DIR_B2, LOW); analogWrite(PWM_2, 0);
+  
+  // Setup Planter Pin
+  //saplingDoorServo.attach(SAPLING_DOOR_PIN);
+  //saplingDoorServo.write(0); // Ensure door is closed
+  
+  Serial.println("ESP32 Muscle Layer Ready.");
+}
+
+void loop() {
+  // Listen for commands from the Raspberry Pi
+  recvWithStartEndMarkers();
+  if (newData == true) {
+    strcpy(tempChars, receivedChars);
+    parseData();
+    newData = false;
+  }
+
+  // Report Battery Voltage every 2 seconds
+  if (millis() - lastVoltageTime > 2000) {
+    reportBatteryVoltage();
+    lastVoltageTime = millis();
+  }
 }
