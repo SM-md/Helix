@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Helix — Sensor Calibration</title>
+<style>
+/* ── Base (matches dashboard dark theme) ────────────────────── */
+:root {
+    --bg-dark:   #121212;
+    --panel-bg:  #1e1e1e;
+    --panel-2:   #252525;
+    --text-main: #ffffff;
+    --text-muted:#aaaaaa;
+    --green:     #00e676;
+    --blue:      #2979ff;
+    --yellow:    #ffea00;
+    --danger:    #ff1744;
+    --orange:    #ff9800;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    background: var(--bg-dark);
+    color: var(--text-main);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    padding: 20px;
+    min-height: 100vh;
+}
+h1 {
+    color: var(--green);
+    text-align: center;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    font-size: 1.4rem;
+    margin-bottom: 6px;
+}
+.sub { text-align: center; color: var(--text-muted); font-size: 0.82rem; margin-bottom: 20px; letter-spacing: 1px; }
+.shell { max-width: 960px; margin: 0 auto; }
+
+/* ── Status bar ─────────────────────────────────────────────── */
+.ws-bar {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--panel-bg); padding: 12px 20px;
+    border-radius: 10px; margin-bottom: 20px;
+    border: 1px solid #2a2a2a;
+}
+.ws-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--danger); flex-shrink: 0; transition: background .3s; }
+.ws-dot.ok { background: var(--green); box-shadow: 0 0 8px rgba(0,230,118,0.5); }
+#ws-label { font-size: 0.85rem; color: var(--text-muted); }
+
+/* ── Tabs ───────────────────────────────────────────────────── */
+.tabs { display: flex; gap: 10px; margin-bottom: 20px; }
+.tab-btn {
+    flex: 1; padding: 14px; background: #2a2a2a; color: var(--text-muted);
+    border: 2px solid transparent; border-radius: 8px; font-size: 1rem;
+    font-weight: bold; cursor: pointer; transition: all .25s; text-transform: uppercase; letter-spacing: 1px;
+}
+.tab-btn.active { background: var(--panel-bg); border-color: var(--green); color: var(--green); }
+
+/* ── Panels ─────────────────────────────────────────────────── */
+.panel { display: none; }
+.panel.active { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+#tab-output.active { display: block; }
+
+/* ── Cards ──────────────────────────────────────────────────── */
+.card {
+    background: var(--panel-bg); border-radius: 12px;
+    padding: 20px; border: 1px solid #2a2a2a;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+}
+.card.full { grid-column: 1 / -1; }
+.card-title {
+    font-size: 0.78rem; font-weight: bold; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 14px;
+    border-bottom: 1px solid #2a2a2a; padding-bottom: 10px;
+}
+
+/* ── Stat grid ──────────────────────────────────────────────── */
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+.stat-box { background: #252525; border-radius: 8px; padding: 10px 14px; }
+.stat-lbl { font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+.stat-val { font-size: 1.5rem; font-weight: bold; font-family: monospace; }
+.green { color: var(--green); }
+.yellow { color: var(--yellow); }
+.red { color: var(--danger); }
+.blue { color: var(--blue); }
+.muted { color: var(--text-muted); }
+
+/* ── Progress bar ───────────────────────────────────────────── */
+.prog-wrap { height: 6px; background: #333; border-radius: 3px; overflow: hidden; margin: 6px 0 4px; }
+.prog-fill { height: 100%; border-radius: 3px; background: var(--green); transition: width .4s; }
+.prog-lbl { font-size: 0.75rem; color: var(--text-muted); }
+
+/* ── Buttons ────────────────────────────────────────────────── */
+.btn-row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+.btn {
+    padding: 10px 20px; border: none; border-radius: 6px;
+    font-weight: bold; font-size: 0.9rem; cursor: pointer;
+    transition: opacity .2s, transform .1s; letter-spacing: .5px;
+}
+.btn:hover { opacity: .85; }
+.btn:active { transform: scale(.97); }
+.btn:disabled { opacity: .35; cursor: not-allowed; }
+.btn-green  { background: #1b5e20; color: var(--green); border: 1px solid var(--green); }
+.btn-blue   { background: #0d1e4a; color: var(--blue);  border: 1px solid var(--blue);  }
+.btn-danger { background: #4a0000; color: var(--danger); border: 1px solid var(--danger); }
+.btn-orange { background: var(--orange); color: #000; }
+.btn-muted  { background: #2a2a2a; color: var(--text-muted); border: 1px solid #444; }
+
+/* ── Sliders ────────────────────────────────────────────────── */
+.slider-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.slider-row label { font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; min-width: 120px; }
+.slider-row input[type=range] {
+    flex: 1; -webkit-appearance: none; height: 6px;
+    background: #333; border-radius: 3px; outline: none; cursor: pointer;
+}
+.slider-row input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 18px; height: 18px;
+    border-radius: 50%; background: white; border: 2px solid var(--blue);
+    box-shadow: 0 0 6px rgba(41,121,255,0.5);
+}
+.slider-row .slider-val {
+    font-family: monospace; font-size: 0.9rem; min-width: 56px; text-align: right; color: var(--blue);
+}
+
+/* ── Steps ──────────────────────────────────────────────────── */
+.step { display: flex; gap: 12px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid #252525; }
+.step:last-child { border: none; }
+.step-num {
+    width: 24px; height: 24px; border-radius: 50%; border: 1px solid #555;
+    font-size: 0.75rem; font-weight: bold; display: flex; align-items: center;
+    justify-content: center; flex-shrink: 0; color: var(--text-muted); background: #252525;
+}
+.step-num.done { background: #1b5e20; border-color: var(--green); color: var(--green); }
+.step p { font-size: 0.83rem; color: var(--text-muted); line-height: 1.55; }
+.step p strong { color: var(--text-main); }
+
+/* ── Canvas ─────────────────────────────────────────────────── */
+canvas { display: block; background: #000; border-radius: 50%; border: 2px solid #333; }
+#lidarCanvas { border-radius: 8px; border: 2px solid #2a2a2a; }
+
+/* ── Sector grid ────────────────────────────────────────────── */
+.sector-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+.sector { background: #252525; border-radius: 8px; padding: 10px; text-align: center; border: 1px solid #333; }
+.sector-lbl { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+.sector-val { font-size: 1.6rem; font-weight: bold; font-family: monospace; color: var(--green); }
+.sector-val.warn { color: var(--yellow); }
+.sector-val.danger { color: var(--danger); }
+.sector-sub { font-size: 0.68rem; color: #555; margin-top: 3px; }
+
+/* ── Number inputs ──────────────────────────────────────────── */
+.input-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+.input-group label { display: block; font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
+.input-group input[type=number] {
+    width: 100%; padding: 10px; background: #252525; border: 1px solid #444;
+    color: white; border-radius: 6px; font-family: monospace; font-size: 0.95rem;
+}
+.input-group input[type=number]:focus { outline: none; border-color: var(--blue); }
+
+/* ── Code output ────────────────────────────────────────────── */
+.code-block {
+    background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 8px;
+    padding: 16px; font-family: 'Courier New', monospace; font-size: 0.78rem;
+    color: #ccc; white-space: pre; overflow-x: auto;
+    line-height: 1.6; margin-bottom: 12px; max-height: 320px; overflow-y: auto;
+}
+.code-block .kw { color: #c792ea; }
+.code-block .num { color: #f78c6c; }
+.code-block .cm { color: #546e7a; }
+.note { font-size: 0.78rem; color: var(--text-muted); line-height: 1.6; margin-top: 8px; }
+
+/* ── Compass canvas centered ────────────────────────────────── */
+.compass-wrap { display: flex; justify-content: center; margin-bottom: 14px; }
+
+/* ── Obstacle highlight ─────────────────────────────────────── */
+.obstacle-flag {
+    display: none; align-items: center; gap: 8px;
+    background: #4a0000; border: 1px solid var(--danger); border-radius: 6px;
+    padding: 8px 14px; margin-bottom: 10px; font-size: 0.83rem; color: var(--danger);
+    font-weight: bold; letter-spacing: .5px;
+}
+.obstacle-flag.active { display: flex; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+    <h1>Helix — Sensor Calibration</h1>
+    <p class="sub">QMC5883L Compass &nbsp;·&nbsp; YDLidar X4 &nbsp;·&nbsp; Connected via local WebSocket</p>
+
+    <!-- Status bar — no IP input; auto-connects to same host -->
+    <div class="ws-bar">
+        <div class="ws-dot" id="ws-dot"></div>
+        <span id="ws-label">Connecting to Pi WebSocket…</span>
+        <button class="btn btn-muted" onclick="wsReconnect()" style="margin-left:auto;">Reconnect</button>
+        <a href="/" class="btn btn-muted" style="text-decoration:none;">← Dashboard</a>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('compass')">Compass</button>
+        <button class="tab-btn" onclick="switchTab('lidar')">LiDAR</button>
+        <button class="tab-btn" onclick="switchTab('output')">Code Output</button>
+    </div>
+
+    <!-- ══ COMPASS TAB ══════════════════════════════════════════ -->
+    <div class="panel active" id="tab-compass">
+
+        <!-- Left col: canvas + live stats -->
+        <div class="card">
+            <div class="card-title">Live heading — hard-iron ellipse</div>
+            <div class="compass-wrap">
+                <canvas id="compassCanvas" width="200" height="200"></canvas>
+            </div>
+            <div class="stat-grid">
+                <div class="stat-box">
+                    <div class="stat-lbl">Raw heading</div>
+                    <div class="stat-val blue" id="c-raw">—°</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-lbl">Corrected</div>
+                    <div class="stat-val green" id="c-corrected">—°</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-lbl">Samples</div>
+                    <div class="stat-val" id="c-samples">0</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-lbl">Cal quality</div>
+                    <div class="stat-val muted" id="c-quality">—</div>
+                </div>
+            </div>
+            <div class="prog-wrap"><div class="prog-fill" id="c-prog" style="width:0%"></div></div>
+            <div class="prog-lbl" id="c-prog-lbl">0 / 200 samples — spin rover slowly 360°</div>
+            <div class="btn-row">
+                <button class="btn btn-green" id="btn-cal" onclick="toggleCal()">▶ Start Capture</button>
+                <button class="btn btn-danger" onclick="resetCal()">Reset</button>
+            </div>
+        </div>
+
+        <!-- Right col: offsets + steps -->
+        <div style="display:flex;flex-direction:column;gap:20px;">
+
+            <div class="card">
+                <div class="card-title">Declination &amp; mount offset</div>
+                <div class="slider-row">
+                    <label>Declination (°)</label>
+                    <input type="range" min="-30" max="30" value="0.8" step="0.1" id="decl-sl" oninput="onDecl()">
+                    <span class="slider-val" id="decl-out">+0.8°</span>
+                </div>
+                <div class="slider-row">
+                    <label>Mount offset (°)</label>
+                    <input type="range" min="-180" max="180" value="0" step="1" id="mount-sl" oninput="onMount()">
+                    <span class="slider-val" id="mount-out">0°</span>
+                </div>
+                <p class="note">
+                    Cebu City magnetic declination ≈ <strong>+0.8°</strong> (east, pre-filled).<br>
+                    Align rover to true North, then nudge <em>Mount offset</em> until Corrected reads 0°.
+                </p>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Procedure</div>
+                <div class="step"><div class="step-num done">1</div><p>Open this page on a device connected to the Pi's Wi-Fi.</p></div>
+                <div class="step"><div class="step-num" id="s2">2</div><p><strong>Click "Start Capture"</strong> then slowly rotate the rover one full 360° in open air, away from motors and large metal. Takes ~45 s.</p></div>
+                <div class="step"><div class="step-num" id="s3">3</div><p>Watch the ellipse close into a circle on the canvas. Stop when quality says <strong>Good</strong> or you hit 200 samples.</p></div>
+                <div class="step"><div class="step-num" id="s4">4</div><p>Set declination &amp; mount offset, then go to <strong>Code Output</strong> and paste the patch into app.py.</p></div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ══ LIDAR TAB ════════════════════════════════════════════ -->
+    <div class="panel" id="tab-lidar">
+
+        <!-- Left col: live sweep canvas + sector readings -->
+        <div class="card">
+            <div class="card-title">Live sector distances</div>
+            <div class="obstacle-flag" id="obs-flag">⚠ OBSTACLE &lt; THRESHOLD IN FRONT</div>
+            <div class="sector-grid">
+                <div class="sector">
+                    <div class="sector-lbl">Left</div>
+                    <div class="sector-val" id="l-left">—</div>
+                    <div class="sector-sub" id="l-left-rng">315°–45°</div>
+                </div>
+                <div class="sector">
+                    <div class="sector-lbl">Front</div>
+                    <div class="sector-val" id="l-front">—</div>
+                    <div class="sector-sub" id="l-front-rng">45°–135°</div>
+                </div>
+                <div class="sector">
+                    <div class="sector-lbl">Right</div>
+                    <div class="sector-val" id="l-right">—</div>
+                    <div class="sector-sub" id="l-right-rng">135°–225°</div>
+                </div>
+            </div>
+            <canvas id="lidarCanvas" width="280" height="150" style="display:block;margin:0 auto;border-radius:8px;"></canvas>
+        </div>
+
+        <!-- Right col: rotation offset + sector editor -->
+        <div style="display:flex;flex-direction:column;gap:20px;">
+
+            <div class="card">
+                <div class="card-title">Mount rotation offset</div>
+                <div class="slider-row">
+                    <label>Rotation (°)</label>
+                    <input type="range" min="-180" max="180" value="0" step="1" id="rot-sl" oninput="onRot()">
+                    <span class="slider-val" id="rot-out">0°</span>
+                </div>
+                <p class="note">
+                    LiDAR 0° = cable exit direction.<br>
+                    Place an obstacle <strong>directly in front</strong> of the rover. Adjust offset until
+                    the Front sector shows the shortest distance. Positive = rotate clockwise.
+                </p>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Sector arc editor</div>
+                <div class="input-grid">
+                    <div class="input-group">
+                        <label>Front arc start (°)</label>
+                        <input type="number" id="f-start" value="45" min="0" max="359" oninput="onSectors()">
+                    </div>
+                    <div class="input-group">
+                        <label>Front arc end (°)</label>
+                        <input type="number" id="f-end" value="135" min="1" max="360" oninput="onSectors()">
+                    </div>
+                    <div class="input-group">
+                        <label>Right arc end (°)</label>
+                        <input type="number" id="r-end" value="225" min="1" max="360" oninput="onSectors()">
+                    </div>
+                    <div class="input-group">
+                        <label>Obstacle threshold (m)</label>
+                        <input type="number" id="thresh" value="0.5" min="0.1" max="5" step="0.1" oninput="onSectors()">
+                    </div>
+                </div>
+                <p class="note">Left sector = everything outside front &amp; right arcs.</p>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ══ CODE OUTPUT TAB ══════════════════════════════════════ -->
+    <div class="panel" id="tab-output">
+
+        <div class="card" style="margin-bottom:20px;">
+            <div class="card-title">compass_loop patch — paste into app.py</div>
+            <div class="code-block" id="out-compass">Run calibration first.</div>
+            <div class="btn-row">
+                <button class="btn btn-blue" onclick="copyBlock('out-compass', this)">Copy</button>
+            </div>
+        </div>
+
+        <div class="card" style="margin-bottom:20px;">
+            <div class="card-title">lidar_loop patch — paste into app.py</div>
+            <div class="code-block" id="out-lidar">Adjust sectors first.</div>
+            <div class="btn-row">
+                <button class="btn btn-blue" onclick="copyBlock('out-lidar', this)">Copy</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">How to apply</div>
+            <div class="step"><div class="step-num done">1</div><p>Copy the <strong>compass_loop patch</strong>. In app.py, find the heading calculation block inside <code>compass_loop()</code> and replace with the patch.</p></div>
+            <div class="step"><div class="step-num done">2</div><p>Copy the <strong>lidar_loop patch</strong>. In app.py, find the sector extraction lines inside <code>lidar_loop()</code> and replace with the patch.</p></div>
+            <div class="step"><div class="step-num done">3</div><p>Restart the app on the Pi:<br><code>sudo systemctl restart helix</code> &nbsp; or &nbsp; <code>python3 app.py</code></p></div>
+            <div class="step"><div class="step-num done">4</div><p>Back on the dashboard, confirm the heading arrow points north when the rover faces north, and the radar reacts only to real obstacles in front.</p></div>
+        </div>
+
+    </div><!-- end output -->
+</div><!-- end shell -->
+
+<script>
+// =============================================================
+// WebSocket — auto-connect to same host, no IP entry needed
+// =============================================================
+let ws = null;
+
+function wsConnect() {
+    ws = new WebSocket(`ws://${location.hostname}:8000/ws`);
+
+    ws.onopen = () => {
+        document.getElementById('ws-dot').className = 'ws-dot ok';
+        document.getElementById('ws-label').textContent = `Connected — ${location.hostname}:8000`;
+    };
+    ws.onclose = () => {
+        document.getElementById('ws-dot').className = 'ws-dot';
+        document.getElementById('ws-label').textContent = 'Disconnected — retry in 3 s';
+        setTimeout(wsConnect, 3000);
+    };
+    ws.onerror = () => {};
+    ws.onmessage = (e) => handleMsg(JSON.parse(e.data));
+}
+
+function wsReconnect() {
+    if (ws) { ws.onclose = null; ws.close(); }
+    wsConnect();
+}
+
+wsConnect();
+
+// =============================================================
+// Message dispatcher
+// =============================================================
+function handleMsg(data) {
+    if (data.type === 'gps') {
+        const raw = data.heading;
+        document.getElementById('c-raw').textContent = raw.toFixed(1) + '°';
+        const corr = applyCorrection(raw);
+        document.getElementById('c-corrected').textContent = corr.toFixed(1) + '°';
+        if (calActive) addSample(raw);
+        redrawCompass(corr, raw);
+    }
+    if (data.type === 'radar') {
+        lastRadar = { front: data.front, left: data.left, right: data.right };
+        updateLidarDisplay();
+    }
+}
+
+// =============================================================
+// Tab switching
+// =============================================================
+function switchTab(name) {
+    document.querySelectorAll('.tab-btn').forEach((b, i) => {
+        b.classList.toggle('active', ['compass','lidar','output'][i] === name);
+    });
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    if (name === 'output') buildCodeOutput();
+}
+
+// =============================================================
+// Compass calibration
+// =============================================================
+let calActive = false;
+let samples = [];                          // { x, y } unit-vector samples
+let xMin=Infinity,xMax=-Infinity,yMin=Infinity,yMax=-Infinity;
+let decl = 0.8, mountOff = 0;
+
+function applyCorrection(rawDeg) {
+    const hi = hardIronOffsets();
+    if (!hi) return ((rawDeg + decl + mountOff) % 360 + 360) % 360;
+    const rad = rawDeg * Math.PI / 180;
+    const xc = (Math.cos(rad) - hi.ox) * hi.sx;
+    const yc = (Math.sin(rad) - hi.oy) * hi.sy;
+    let h = Math.atan2(yc, xc) * 180 / Math.PI;
+    if (h < 0) h += 360;
+    return ((h + decl + mountOff) % 360 + 360) % 360;
+}
+
+function hardIronOffsets() {
+    if (samples.length < 10) return null;
+    const ox = (xMin + xMax) / 2, oy = (yMin + yMax) / 2;
+    const sx = (xMax > xMin) ? 2 / (xMax - xMin) : 1;
+    const sy = (yMax > yMin) ? 2 / (yMax - yMin) : 1;
+    return { ox, oy, sx, sy };
+}
+
+function toggleCal() {
+    calActive = !calActive;
+    const btn = document.getElementById('btn-cal');
+    btn.textContent = calActive ? '⏹ Stop Capture' : '▶ Start Capture';
+    btn.className = calActive ? 'btn btn-danger' : 'btn btn-green';
+    if (calActive) {
+        document.getElementById('s2').className = 'step-num done';
+    }
+}
+
+function resetCal() {
+    calActive = false;
+    samples = [];
+    xMin=Infinity;xMax=-Infinity;yMin=Infinity;yMax=-Infinity;
+    ['btn-cal'].forEach(id => {
+        const b = document.getElementById(id);
+        b.textContent = '▶ Start Capture'; b.className = 'btn btn-green';
+    });
+    ['s2','s3','s4'].forEach(id => document.getElementById(id).className = 'step-num');
+    document.getElementById('c-samples').textContent = '0';
+    document.getElementById('c-quality').textContent = '—';
+    document.getElementById('c-quality').className = 'stat-val muted';
+    document.getElementById('c-prog').style.width = '0%';
+    document.getElementById('c-prog-lbl').textContent = '0 / 200 samples — spin rover slowly 360°';
+    drawCompassBlank();
+}
+
+function addSample(headingDeg) {
+    const rad = headingDeg * Math.PI / 180;
+    const x = Math.cos(rad), y = Math.sin(rad);
+    samples.push({ x, y });
+    if (x < xMin) xMin = x; if (x > xMax) xMax = x;
+    if (y < yMin) yMin = y; if (y > yMax) yMax = y;
+
+    const n = samples.length;
+    const pct = Math.min(n / 200 * 100, 100);
+    document.getElementById('c-samples').textContent = n;
+    document.getElementById('c-prog').style.width = pct + '%';
+    document.getElementById('c-prog-lbl').textContent = `${n} / 200 samples`;
+
+    if (n >= 200) {
+        calActive = false;
+        document.getElementById('btn-cal').textContent = '✔ Capture Complete';
+        document.getElementById('btn-cal').className = 'btn btn-muted';
+        document.getElementById('s3').className = 'step-num done';
+        document.getElementById('s4').className = 'step-num done';
+    }
+
+    // Quality score: ratio of minor to major axis (1.0 = perfect circle)
+    const xRange = xMax - xMin, yRange = yMax - yMin;
+    const ratio = (xRange > 0 && yRange > 0) ? Math.min(xRange, yRange) / Math.max(xRange, yRange) : 0;
+    const qEl = document.getElementById('c-quality');
+    if (n < 20) {
+        qEl.textContent = 'Collecting…'; qEl.className = 'stat-val muted';
+    } else if (ratio > 0.82) {
+        qEl.textContent = 'Good'; qEl.className = 'stat-val green';
+        if (n >= 40) document.getElementById('s3').className = 'step-num done';
+    } else {
+        qEl.textContent = 'Keep rotating'; qEl.className = 'stat-val yellow';
+    }
+
+    drawEllipse();
+    buildCodeOutput();
+}
+
+// ── Compass canvas ────────────────────────────────────────────
+const CC = document.getElementById('compassCanvas');
+const cctx = CC.getContext('2d');
+const CW = CC.width, CH = CC.height, CCX = CW/2, CCY = CH/2, CR = CW/2 - 10;
+
+function drawCompassBlank() {
+    cctx.clearRect(0, 0, CW, CH);
+    cctx.strokeStyle = '#333'; cctx.lineWidth = 1;
+    cctx.beginPath(); cctx.arc(CCX, CCY, CR, 0, Math.PI*2); cctx.stroke();
+    // Cardinal labels
+    cctx.fillStyle = '#555'; cctx.font = 'bold 11px monospace'; cctx.textAlign = 'center'; cctx.textBaseline = 'middle';
+    cctx.fillText('N', CCX, CCY - CR + 10);
+    cctx.fillText('S', CCX, CCY + CR - 10);
+    cctx.fillText('E', CCX + CR - 10, CCY);
+    cctx.fillText('W', CCX - CR + 10, CCY);
+}
+
+function drawEllipse() {
+    cctx.clearRect(0, 0, CW, CH);
+    // Ring
+    cctx.strokeStyle = '#2a2a2a'; cctx.lineWidth = 1;
+    cctx.beginPath(); cctx.arc(CCX, CCY, CR, 0, Math.PI*2); cctx.stroke();
+
+    if (samples.length < 2) return;
+    const ox = (xMin+xMax)/2, oy = (yMin+yMax)/2;
+    const scale = CR * 0.9 / Math.max((xMax-xMin)/2, (yMax-yMin)/2, 0.0001);
+
+    // Dots
+    cctx.fillStyle = 'rgba(41,121,255,0.5)';
+    for (const s of samples) {
+        const px = CCX + (s.x - ox) * scale;
+        const py = CCY - (s.y - oy) * scale;
+        cctx.beginPath(); cctx.arc(px, py, 2, 0, Math.PI*2); cctx.fill();
+    }
+
+    // Centre cross (bias offset)
+    cctx.strokeStyle = '#ff1744'; cctx.lineWidth = 1.5;
+    const bx = CCX + (0 - ox)*scale, by = CCY - (0 - oy)*scale;
+    cctx.beginPath(); cctx.moveTo(bx-6,by); cctx.lineTo(bx+6,by); cctx.stroke();
+    cctx.beginPath(); cctx.moveTo(bx,by-6); cctx.lineTo(bx,by+6); cctx.stroke();
+
+    // Cardinals
+    cctx.fillStyle = '#555'; cctx.font = 'bold 11px monospace'; cctx.textAlign='center'; cctx.textBaseline='middle';
+    cctx.fillText('N',CCX,CCY-CR+10); cctx.fillText('S',CCX,CCY+CR-10);
+    cctx.fillText('E',CCX+CR-10,CCY); cctx.fillText('W',CCX-CR+10,CCY);
+}
+
+let lastCompassCorr = 0;
+function redrawCompass(corrDeg, rawDeg) {
+    lastCompassCorr = corrDeg;
+    if (samples.length > 1) { drawEllipse(); return; }  // show ellipse while calibrating
+    cctx.clearRect(0, 0, CW, CH);
+    cctx.strokeStyle = '#2a2a2a'; cctx.lineWidth = 1;
+    cctx.beginPath(); cctx.arc(CCX, CCY, CR, 0, Math.PI*2); cctx.stroke();
+    // Cardinal labels
+    cctx.fillStyle = '#555'; cctx.font = 'bold 11px monospace'; cctx.textAlign='center'; cctx.textBaseline='middle';
+    cctx.fillText('N',CCX,CCY-CR+10); cctx.fillText('S',CCX,CCY+CR-10);
+    cctx.fillText('E',CCX+CR-10,CCY); cctx.fillText('W',CCX-CR+10,CCY);
+    // Arrow
+    const rad = (corrDeg - 90) * Math.PI / 180;
+    cctx.strokeStyle = '#2979ff'; cctx.lineWidth = 2.5;
+    cctx.shadowBlur = 10; cctx.shadowColor = '#2979ff';
+    cctx.beginPath(); cctx.moveTo(CCX, CCY);
+    cctx.lineTo(CCX + (CR-14)*Math.cos(rad), CCY + (CR-14)*Math.sin(rad));
+    cctx.stroke(); cctx.shadowBlur = 0;
+    // North tick
+    cctx.strokeStyle = '#00e676'; cctx.lineWidth = 2;
+    cctx.beginPath(); cctx.moveTo(CCX, CCY-CR+2); cctx.lineTo(CCX, CCY-CR+10); cctx.stroke();
+}
+
+function onDecl() {
+    decl = parseFloat(document.getElementById('decl-sl').value);
+    document.getElementById('decl-out').textContent = (decl >= 0 ? '+' : '') + decl.toFixed(1) + '°';
+    buildCodeOutput();
+}
+function onMount() {
+    mountOff = parseInt(document.getElementById('mount-sl').value);
+    document.getElementById('mount-out').textContent = (mountOff >= 0 ? '+' : '') + mountOff + '°';
+    buildCodeOutput();
+}
+
+// =============================================================
+// LiDAR display
+// =============================================================
+let lastRadar = { front: 9.9, left: 9.9, right: 9.9 };
+let rotOff = 0, fStart = 45, fEnd = 135, rEnd = 225, threshold = 0.5;
+
+function onRot() {
+    rotOff = parseInt(document.getElementById('rot-sl').value);
+    document.getElementById('rot-out').textContent = (rotOff >= 0 ? '+' : '') + rotOff + '°';
+    buildCodeOutput();
+}
+function onSectors() {
+    fStart    = parseInt(document.getElementById('f-start').value) || 45;
+    fEnd      = parseInt(document.getElementById('f-end').value)   || 135;
+    rEnd      = parseInt(document.getElementById('r-end').value)   || 225;
+    threshold = parseFloat(document.getElementById('thresh').value) || 0.5;
+    document.getElementById('l-front-rng').textContent = `${fStart}°–${fEnd}°`;
+    document.getElementById('l-right-rng').textContent = `${fEnd}°–${rEnd}°`;
+    document.getElementById('l-left-rng').textContent  = `${rEnd}°–360°+0°–${fStart}°`;
+    buildCodeOutput();
+}
+
+function distClass(v) {
+    if (v >= 9.9) return '';
+    if (v < threshold) return 'danger';
+    if (v < threshold * 2.5) return 'warn';
+    return '';
+}
+
+function updateLidarDisplay() {
+    const fmt = v => v >= 9.9 ? '—' : v.toFixed(2) + 'm';
+    ['front','left','right'].forEach(s => {
+        const el = document.getElementById('l-' + s);
+        el.textContent = fmt(lastRadar[s]);
+        el.className = 'sector-val ' + distClass(lastRadar[s]);
+    });
+    const obsFlag = document.getElementById('obs-flag');
+    obsFlag.classList.toggle('active', lastRadar.front < threshold && lastRadar.front < 9.9);
+    drawLidar();
+}
+
+const LC = document.getElementById('lidarCanvas');
+const lctx = LC.getContext('2d');
+const LW = LC.width, LH = LC.height, LCX = LW/2, LCY = LH - 10, LR = LH - 20;
+
+function drawLidar() {
+    lctx.clearRect(0, 0, LW, LH);
+    // Range rings
+    [0.33, 0.66, 1].forEach(f => {
+        lctx.strokeStyle = '#222'; lctx.lineWidth = 0.5;
+        lctx.beginPath(); lctx.arc(LCX, LCY, LR*f, Math.PI, Math.PI*2); lctx.stroke();
+    });
+
+    const sectors = [
+        { val: lastRadar.left,  sD: rEnd,  eD: 360+fStart, color: '#2979ff' },
+        { val: lastRadar.front, sD: fStart, eD: fEnd,       color: '#00e676' },
+        { val: lastRadar.right, sD: fEnd,   eD: rEnd,       color: '#ffea00' },
+    ];
+
+    sectors.forEach(s => {
+        const dist = Math.min(s.val >= 9.9 ? 5 : s.val, 5);
+        const pr   = dist / 5 * LR;
+        const r1   = (s.sD - 90) * Math.PI / 180;
+        const r2   = (s.eD - 90) * Math.PI / 180;
+        lctx.beginPath();
+        lctx.moveTo(LCX, LCY);
+        lctx.arc(LCX, LCY, pr, r1, r2);
+        lctx.closePath();
+        lctx.fillStyle = s.color + '33';
+        lctx.fill();
+        lctx.strokeStyle = s.color + '88';
+        lctx.lineWidth = 1.5;
+        lctx.stroke();
+    });
+
+    // Outer arc
+    lctx.strokeStyle = '#333'; lctx.lineWidth = 1;
+    lctx.beginPath(); lctx.arc(LCX, LCY, LR, Math.PI, Math.PI*2); lctx.stroke();
+
+    // Forward tick
+    lctx.strokeStyle = '#00e676'; lctx.lineWidth = 2;
+    lctx.beginPath(); lctx.moveTo(LCX, LCY); lctx.lineTo(LCX, LCY - LR); lctx.stroke();
+}
+
+// =============================================================
+// Code output generation
+// =============================================================
+function buildCodeOutput() {
+    const hi = hardIronOffsets();
+
+    // ── Compass patch ──────────────────────────────────────────
+    let cp;
+    if (!hi) {
+        cp = '# Complete compass calibration first (need ≥ 10 samples).\n# Spin the rover 360° with capture running.';
+    } else {
+        cp =
+`# ── Compass hard-iron calibration ──────────────────────────────────────
+# Generated by Helix Calibration Tool  |  samples: ${samples.length}
+# Add these constants near the top of app.py (outside any function):
+
+COMPASS_OFFSET_X    = ${hi.ox.toFixed(5)}
+COMPASS_OFFSET_Y    = ${hi.oy.toFixed(5)}
+COMPASS_SCALE_X     = ${hi.sx.toFixed(5)}
+COMPASS_SCALE_Y     = ${hi.sy.toFixed(5)}
+COMPASS_DECLINATION = ${decl.toFixed(2)}   # degrees east positive
+COMPASS_MOUNT_OFFSET= ${mountOff}           # degrees, CW positive
+
+# ── Replace the heading calculation block inside compass_loop() ──────────
+# (the lines that read x, y, compute heading_rad, heading_deg, and set
+#  gps_state["heading"]).  Paste this in their place:
+
+            x_cal = (x - COMPASS_OFFSET_X) * COMPASS_SCALE_X
+            y_cal = (y - COMPASS_OFFSET_Y) * COMPASS_SCALE_Y
+            heading_rad = math.atan2(y_cal, x_cal)
+            heading_deg = math.degrees(heading_rad)
+            if heading_deg < 0:
+                heading_deg += 360.0
+            heading_deg = (heading_deg
+                           + COMPASS_DECLINATION
+                           + COMPASS_MOUNT_OFFSET) % 360
+            gps_state["heading"] = heading_deg`;
+    }
+    document.getElementById('out-compass').textContent = cp;
+
+    // ── LiDAR patch ────────────────────────────────────────────
+    const lp =
+`# ── LiDAR sector calibration ────────────────────────────────────────────
+# Mount rotation offset : ${rotOff >= 0 ? '+' : ''}${rotOff}°
+# Front sector          : ${fStart}° – ${fEnd}°
+# Right sector          : ${fEnd}° – ${rEnd}°
+# Left sector           : ${rEnd}°–360° + 0°–${fStart}°
+# Obstacle threshold    : ${threshold} m
+#
+# Add this constant near the top of app.py:
+LIDAR_ROTATION_OFFSET = ${rotOff}
+
+# ── Replace the sector extraction block inside lidar_loop() ──────────────
+# (the three lines that build front/left/right lists and compute minimums).
+# Paste this in their place:
+
+            def _r(deg):
+                return (deg + LIDAR_ROTATION_OFFSET) % 360
+
+            raw_front = [scan.get(_r(i), 0) for i in range(${fStart}, ${fEnd})]
+            raw_right = [scan.get(_r(i), 0) for i in range(${fEnd}, ${rEnd})]
+            raw_left  = ([scan.get(_r(i), 0) for i in range(${rEnd}, 360)]
+                         + [scan.get(_r(i), 0) for i in range(0, ${fStart})])
+
+            radar_data["front"] = min(
+                (d / 1000 for d in raw_front if d > 0), default=9.9)
+            radar_data["right"] = min(
+                (d / 1000 for d in raw_right if d > 0), default=9.9)
+            radar_data["left"]  = min(
+                (d / 1000 for d in raw_left  if d > 0), default=9.9)
+
+# Also update the obstacle check in auto_nav_loop() if you changed threshold:
+#   if radar_data["front"] < ${threshold}:`;
+    document.getElementById('out-lidar').textContent = lp;
+}
+
+// =============================================================
+// Copy button
+// =============================================================
+function copyBlock(id, btn) {
+    const text = document.getElementById(id).textContent;
+    navigator.clipboard.writeText(text).then(() => {
+        const orig = btn.textContent;
+        btn.textContent = '✔ Copied!';
+        btn.className = 'btn btn-green';
+        setTimeout(() => { btn.textContent = orig; btn.className = 'btn btn-blue'; }, 2000);
+    });
+}
+
+// =============================================================
+// Init
+// =============================================================
+drawCompassBlank();
+drawLidar();
+buildCodeOutput();
+onSectors();
+</script>
+</body>
+</html>

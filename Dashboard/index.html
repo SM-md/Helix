@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Helix Dashboard</title>
+    <link rel="stylesheet" href="/leaflet/leaflet.css" />
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+    <h1>Helix Autonomous Planter <span id="mode-badge" class="mode-badge mode-manual">MANUAL</span></h1>
+
+    <header class="telemetry-bar">
+        <div class="stat-box">
+            <div class="stat-label">LC29H GPS Status</div>
+            <div id="gps-status" class="stat-value no-fix">WAITING...</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">Mangroves Remaining</div>
+            <div id="mangrove-count" class="stat-value">11</div>
+            <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:6px;">
+                <button onclick="adjustMangrove(-1)"
+                    style="background:#2a2a2a;color:white;border:1px solid #444;
+                           border-radius:4px;width:28px;height:28px;font-size:1.1rem;
+                           font-weight:bold;cursor:pointer;line-height:1;padding:0;flex:none;">−</button>
+                <button onclick="adjustMangrove(1)"
+                    style="background:#2a2a2a;color:white;border:1px solid #444;
+                           border-radius:4px;width:28px;height:28px;font-size:1.1rem;
+                           font-weight:bold;cursor:pointer;line-height:1;padding:0;flex:none;">+</button>
+            </div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">System Battery (Zenova 30Ah)</div>
+            <div id="battery-pct" class="stat-value">--%</div>
+            <div id="battery-voltage" class="stat-value" style="font-size:1rem;margin-top:2px;">-- V</div>
+        </div>
+    </header>
+
+    <nav class="nav-tabs">
+        <button class="tab-btn active" onclick="switchTab('mission')">🗺️ Mission Planning</button>
+        <button class="tab-btn" onclick="switchTab('manual')">🎮 Manual Override</button>
+        <button class="tab-btn" onclick="switchTab('logs')">📜 Mission Logs</button>
+    </nav>
+
+    <main class="main-content">
+        <div class="map-container">
+            <div id="mission-map"></div>
+            <div class="map-hint">Click anywhere on the map to set coordinates.</div>
+        </div>
+
+        <div class="panels-container">
+
+            <!-- ══ MISSION PLANNING ══════════════════════════ -->
+            <div id="view-mission" class="panel view-panel active">
+                <h2>Mission Waypoints</h2>
+                <div class="input-group coord-inputs">
+                    <div>
+                        <label for="lat-input">Latitude</label>
+                        <input type="number" id="lat-input" placeholder="e.g. 10.7123456" step="any">
+                    </div>
+                    <div>
+                        <label for="lng-input">Longitude</label>
+                        <input type="number" id="lng-input" placeholder="e.g. 122.5678901" step="any">
+                    </div>
+                </div>
+                <div class="button-group">
+                    <button class="btn-nav"   onclick="addWaypoint('navigate')">📍 Add Navigation</button>
+                    <button class="btn-plant" onclick="addWaypoint('plant')">🌱 Add Planting</button>
+                </div>
+                <div class="queue-section">
+                    <div class="queue-header">
+                        <h3>Active Queue</h3>
+                        <div style="display:flex;gap:8px;">
+                            <button class="btn-clear"      onclick="clearQueueOnly()">Clear All</button>
+                            <button class="btn-save-clear" onclick="saveAndClearQueue()">Save & Clear</button>
+                        </div>
+                    </div>
+                    <ul id="waypoint-list" class="waypoint-list"></ul>
+                    <div class="mission-btn-group">
+                        <button id="btn-execute" class="btn-execute" onclick="sendMissionToPi()">
+                            🚀 Send Mission to Robot
+                        </button>
+                        <button id="btn-pause" class="btn-pause" style="display:none"
+                                data-paused="0" onclick="pauseMission()">
+                            ⏸ Pause
+                        </button>
+                        <button id="btn-abort" class="btn-abort" style="display:none"
+                                onclick="abortMission()">
+                            ✖ Abort
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ══ MISSION LOGS ══════════════════════════════ -->
+            <div id="view-logs" class="panel view-panel">
+                <h2>Queue Log History</h2>
+                <div id="log-list" class="log-container">
+                    <p style="color:#777;text-align:center;margin-top:20px;">No mission history yet.</p>
+                </div>
+            </div>
+
+            <!-- ══ MANUAL OVERRIDE ══════════════════════════ -->
+            <div id="view-manual" class="panel view-panel">
+                <h2>Manual Override &amp; Radar</h2>
+
+                <!-- Row 1: Radar left, D-pad right -->
+                <div class="manual-top-row">
+
+                    <div class="radar-wrapper">
+                        <canvas id="radarCanvas" width="160" height="160"></canvas>
+                        <div id="radar-gps-data" class="radar-label">HDG: 0.0° | SHIELD: ACTIVE</div>
+                    </div>
+
+                    <div class="d-pad-container">
+                        <div class="d-pad">
+                            <div></div>
+                            <button id="btn-up"    class="d-btn">▲</button>
+                            <div></div>
+                            <button id="btn-left"  class="d-btn">◀</button>
+                            <div class="d-center"></div>
+                            <button id="btn-right" class="d-btn">▶</button>
+                            <div></div>
+                            <button id="btn-down"  class="d-btn">▼</button>
+                            <div></div>
+                        </div>
+                        <p class="d-pad-hint">Hold to move · Release to stop<br><strong>WASD / Arrow Keys</strong></p>
+                    </div>
+
+                </div>
+
+                <!-- Row 2: Speed slider -->
+                <div class="slider-section">
+                    <div class="slider-header">
+                        <span class="slider-label">⚙️ Drive Speed</span>
+                        <span class="slider-badge"><span id="speed-val">100</span>%</span>
+                    </div>
+                    <input type="range" id="speed-slider" min="0" max="100" value="100" class="speed-slider">
+                </div>
+
+                <!-- Row 3: Plant button -->
+                <button id="btn-manual-plant" class="btn-manual-plant" onclick="sendPlantCmd()">
+                    🌱 EXECUTE PLANTING
+                </button>
+                <p class="plant-hint">Indexes revolver → spills seedling → drops into trench</p>
+
+            </div>
+
+        </div><!-- end panels-container -->
+    </main>
+
+    <!-- Obstacle Trap Modal -->
+    <div id="alert-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;
+         background:rgba(0,0,0,0.8);align-items:center;justify-content:center;z-index:9999;">
+        <div style="background:#7f1d1d;border:3px solid red;padding:40px;border-radius:12px;
+                    text-align:center;color:white;box-shadow:0 0 30px red;">
+            <h1 style="text-shadow:none;">🚨 OBSTACLE TRAP! 🚨</h1>
+            <p>LiDAR shield detected unavoidable obstacles. E-Brake Applied.</p>
+            <button onclick="document.getElementById('alert-modal').style.display='none';"
+                    style="background:white;color:red;border:none;padding:10px 20px;
+                           font-size:1.2rem;font-weight:bold;cursor:pointer;border-radius:6px;margin-top:20px;">
+                Acknowledge
+            </button>
+        </div>
+    </div>
+
+    <script src="/leaflet/leaflet.js"></script>
+    <script src="js/map.js"></script>
+    <script src="js/logs.js"></script>
+    <script src="js/telemetry.js"></script>
+    <script src="js/waypoints.js"></script>
+    <script src="js/manual.js"></script>
+    <script src="js/tabs.js"></script>
+</body>
+</html>
